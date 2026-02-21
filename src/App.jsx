@@ -405,7 +405,7 @@ function useNotifCheck(reminders, weeklyTasks, profile) {
         (r.timers || []).forEach((t) => {
           if (t.time === timeNow) {
             // Trigger Backend Email for Habit
-            fetch("http://localhost:5000/send-reminder", {
+            fetch("project-t-backend-production.up.railway.app", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
@@ -426,7 +426,7 @@ function useNotifCheck(reminders, weeklyTasks, profile) {
           !task.doneThisWeek
         ) {
           // Trigger Backend Email for Weekly Task
-          fetch("http://localhost:5000/send-reminder", {
+          fetch("project-t-backend-production.up.railway.app", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
