@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import logo from "./assets/logo.png";
 
 const FONTS = `@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300&family=Jost:wght@300;400;500;600&display=swap');`;
 
@@ -405,15 +406,18 @@ function useNotifCheck(reminders, weeklyTasks, profile) {
         (r.timers || []).forEach((t) => {
           if (t.time === timeNow) {
             // Trigger Backend Email for Habit
-            fetch("project-t-backend-production.up.railway.app", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                to: profile.email,
-                subject: `⏰ Time for ${r.habitName}`,
-                text: t.label || `Time for your ${r.habitName} routine!`,
-              }),
-            }).catch((err) => console.error("Email API failed:", err));
+            fetch(
+              "https://project-t-backend-production.up.railway.app/send-reminder",
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  to: profile.email,
+                  subject: `⏰ Time for ${r.habitName}`,
+                  text: t.label || `Time for your ${r.habitName} routine!`,
+                }),
+              },
+            ).catch((err) => console.error("Email API failed:", err));
           }
         });
       });
@@ -426,15 +430,18 @@ function useNotifCheck(reminders, weeklyTasks, profile) {
           !task.doneThisWeek
         ) {
           // Trigger Backend Email for Weekly Task
-          fetch("project-t-backend-production.up.railway.app", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              to: profile.email,
-              subject: `📋 Weekly Task: ${task.name}`,
-              text: `Don't forget to complete your task: ${task.name}`,
-            }),
-          }).catch((err) => console.error("Email API failed:", err));
+          fetch(
+            "https://project-t-backend-production.up.railway.app/send-reminder",
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                to: profile.email,
+                subject: `📋 Weekly Task: ${task.name}`,
+                text: `Don't forget to complete your task: ${task.name}`,
+              }),
+            },
+          ).catch((err) => console.error("Email API failed:", err));
         }
       });
     };
@@ -2059,7 +2066,20 @@ export default function App() {
                 }}
               >
                 <div>
-                  <div className="onboard-logo">
+                  <div
+                    className="onboard-logo"
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "flex-start",
+                      gap: "10px",
+                    }}
+                  >
+                    <img
+                      src={logo}
+                      alt="LifeTrack Logo"
+                      style={{ height: "36px", width: "auto" }}
+                    />
                     life<span>·</span>track
                   </div>
                   <div className="onboard-sub">
@@ -2280,7 +2300,15 @@ export default function App() {
       </style>
       <div className="app" data-dark={dark}>
         <div className="header">
-          <div className="header-logo">
+          <div
+            className="header-logo"
+            style={{ display: "flex", alignItems: "center", gap: "8px" }}
+          >
+            <img
+              src={logo}
+              alt="LifeTrack Logo"
+              style={{ height: "28px", width: "auto" }}
+            />
             life<span>·</span>track
           </div>
           <div className="header-right">
