@@ -1409,6 +1409,7 @@ export default function App() {
   const [customHabits, setCustomHabits] = useState([]);
   const [removedHabits, setRemovedHabits] = useState([]);
   const [showAddHabit, setShowAddHabit] = useState(false);
+  const iframeRef = useRef(null);
 
   // Hook receives profile so Nodemailer can access the user's email
   useNotifCheck(reminders, weeklyTasks, profile);
@@ -2024,8 +2025,10 @@ export default function App() {
 
     // 8. Wait a tiny bit for styles/fonts to load, then trigger native print
     setTimeout(() => {
-      iframe.contentWindow.focus();
-      iframe.contentWindow.print();
+      if (iframeRef.current && iframeRef.current.contentWindow) {
+        iframeRef.current.contentWindow.focus();
+        iframeRef.current.contentWindow.print();
+      }
 
       // Clean up the iframe AFTER the print dialog closes (No more manual clear pop-up!)
       setTimeout(() => {
@@ -2861,6 +2864,8 @@ export default function App() {
           )}
         </div>
       </div>
+      {/* Hidden iframe for printing */}
+      <iframe ref={iframeRef} style={{ display: "none" }} title="print-frame" />
     </>
   );
 }
