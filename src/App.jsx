@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import logo from "./assets/logo.png";
+import logo from "./assets/logo2.png";
 
 const FONTS = `@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300&family=Jost:wght@300;400;500;600&display=swap');`;
 
