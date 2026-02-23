@@ -378,77 +378,39 @@ const DAYS = [
 const DAYS_SHORT = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 function useNotifCheck(reminders, weeklyTasks, profile) {
-  const timerRef = useRef(null);
+  // We no longer need the timerRef because the frontend isn't checking the clock anymore!
 
   useEffect(() => {
     // If no user is logged in OR they didn't provide an email, stop here.
     if (!profile || !profile.email) return;
 
-    if (timerRef.current) clearInterval(timerRef.current);
+    const syncScheduleToBackend = async () => {
+      try {
+        // Automatically detects your exact timezone (e.g., "Asia/Calcutta")
+        const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-    const check = () => {
-      const now = new Date();
-      const hh = String(now.getHours()).padStart(2, "0");
-      const mm = String(now.getMinutes()).padStart(2, "0");
-      const timeNow = `${hh}:${mm}`;
-      const dayNow = [
-        "Sunday",
-        "Monday",
-        "Tuesday",
-        "Wednesday",
-        "Thursday",
-        "Friday",
-        "Saturday",
-      ][now.getDay()];
+        await fetch(
+          "https://project-t-backend-production.up.railway.app/sync-schedule",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              email: profile.email,
+              timezone: userTimezone,
+              reminders: reminders || [], // Sends all Daily Habit Timers
+              weeklyTasks: weeklyTasks || [], // Sends all Weekly Task Timers
+            }),
+          },
+        );
 
-      // --- CHECK DAILY HABIT TIMERS ---
-      (reminders || []).forEach((r) => {
-        (r.timers || []).forEach((t) => {
-          if (t.time === timeNow) {
-            // Trigger Backend Email for Habit
-            fetch(
-              "https://project-t-backend-production.up.railway.app/send-reminder",
-              {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  to: profile.email,
-                  subject: `⏰ Time for ${r.habitName}`,
-                  text: t.label || `Time for your ${r.habitName} routine!`,
-                }),
-              },
-            ).catch((err) => console.error("Email API failed:", err));
-          }
-        });
-      });
-
-      // --- CHECK WEEKLY TASK TIMERS ---
-      (weeklyTasks || []).forEach((task) => {
-        if (
-          task.day === dayNow &&
-          task.reminderTime === timeNow &&
-          !task.doneThisWeek
-        ) {
-          // Trigger Backend Email for Weekly Task
-          fetch(
-            "https://project-t-backend-production.up.railway.app/send-reminder",
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                to: profile.email,
-                subject: `📋 Weekly Task: ${task.name}`,
-                text: `Don't forget to complete your task: ${task.name}`,
-              }),
-            },
-          ).catch((err) => console.error("Email API failed:", err));
-        }
-      });
+        console.log("✅ Schedule synced successfully to the 24/7 backend!");
+      } catch (err) {
+        console.error("❌ Failed to sync schedule:", err);
+      }
     };
 
-    // Check the clock every 60 seconds
-    timerRef.current = setInterval(check, 60000);
-    return () => clearInterval(timerRef.current);
+    // Run the sync function instantly whenever you add, edit, or delete a reminder
+    syncScheduleToBackend();
   }, [reminders, weeklyTasks, profile]);
 }
 
