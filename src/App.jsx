@@ -392,13 +392,16 @@ function useNotifCheck(reminders, weeklyTasks, profile) {
         await fetch(
           "https://project-t-backend-production.up.railway.app/sync-schedule",
           {
+            // Use localhost while testing!
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               email: profile.email,
               timezone: userTimezone,
-              reminders: reminders || [], // Sends all Daily Habit Timers
-              weeklyTasks: weeklyTasks || [], // Sends all Weekly Task Timers
+              reminders: reminders || [],
+              weeklyTasks: weeklyTasks || [],
+              streak: currentStreak, // <-- NEW
+              moods: weeklyMoodLog, // <-- NEW
             }),
           },
         );
@@ -748,9 +751,104 @@ function WeeklyTasksTab({ weeklyTasks, setWeeklyTasks, currentUser }) {
   );
 }
 
-function ProfileTab({ profile, onSave, onLogout }) {
+// --- CUSTOM WEIGHT CHART COMPONENT ---
+function WeightChart({ data }) {
+  if (!data || data.length < 2)
+    return (
+      <div className="empty" style={{ fontSize: 12 }}>
+        Log your weight at least twice to see your trend line!
+      </div>
+    );
+
+  const weights = data.map((d) => d.weight);
+  const minW = Math.min(...weights) - 2;
+  const maxW = Math.max(...weights) + 2;
+  const range = maxW - minW || 1;
+
+  const chartW = 300;
+  const chartH = 100;
+
+  // Calculate coordinates for the SVG line
+  const points = data
+    .map((d, i) => {
+      const x = (i / (data.length - 1)) * chartW;
+      const y = chartH - ((d.weight - minW) / range) * chartH;
+      return `${x},${y}`;
+    })
+    .join(" ");
+
+  return (
+    <div
+      style={{
+        background: "var(--surface)",
+        border: "1px solid var(--border)",
+        borderRadius: "12px",
+        padding: "16px 10px",
+        marginTop: "16px",
+      }}
+    >
+      {/* 👇 FIXED: Expanded the viewBox to add 30px of safe padding on all sides 👇 */}
+      <svg
+        viewBox="-30 -25 360 160"
+        style={{ width: "100%", height: "auto", overflow: "visible" }}
+      >
+        <polyline
+          fill="none"
+          stroke="var(--accent)"
+          strokeWidth="3"
+          points={points}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+
+        {data.map((d, i) => {
+          const x = (i / (data.length - 1)) * chartW;
+          const y = chartH - ((d.weight - minW) / range) * chartH;
+          return (
+            <g key={i}>
+              <circle
+                cx={x}
+                cy={y}
+                r="5"
+                fill="var(--surface)"
+                stroke="var(--accent)"
+                strokeWidth="2"
+              />
+              {/* Made the numbers slightly larger and shifted them to fit beautifully */}
+              <text
+                x={x}
+                y={y - 14}
+                fontSize="14"
+                fill="var(--text)"
+                textAnchor="middle"
+                fontFamily="Jost, sans-serif"
+                fontWeight="bold"
+              >
+                {d.weight}
+              </text>
+              <text
+                x={x}
+                y={chartH + 24}
+                fontSize="12"
+                fill="var(--text3)"
+                textAnchor="middle"
+                fontFamily="Jost, sans-serif"
+              >
+                {d.date}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+function ProfileTab({ profile, onSave, onLogout, weightHistory, onLogWeight }) {
   const [editing, setEditing] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [quickWeight, setQuickWeight] = useState(""); // State for quick weight logging
+
   const [form, setForm] = useState({
     age: profile.age,
     weight: profile.weight,
@@ -760,6 +858,7 @@ function ProfileTab({ profile, onSave, onLogout }) {
     email: profile.email || "",
     phone: profile.phone || "",
   });
+
   useEffect(() => {
     setForm({
       age: profile.age,
@@ -771,6 +870,7 @@ function ProfileTab({ profile, onSave, onLogout }) {
       phone: profile.phone || "",
     });
   }, [profile]);
+
   const handleSave = async () => {
     await onSave({
       age: +form.age,
@@ -785,6 +885,7 @@ function ProfileTab({ profile, onSave, onLogout }) {
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
   };
+
   const handleCancel = () => {
     setForm({
       age: profile.age,
@@ -795,17 +896,34 @@ function ProfileTab({ profile, onSave, onLogout }) {
     });
     setEditing(false);
   };
-  const bmi = calcBMI(+form.weight, +form.height);
-  const bmr = calcBMR(+form.weight, +form.height, +form.age, form.gender);
+
+  const handleQuickLog = () => {
+    if (!quickWeight) return;
+    onLogWeight(+quickWeight);
+    setQuickWeight("");
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2500);
+  };
+
+  const bmi = calcBMI(+profile.weight, +profile.height);
+  const bmr = calcBMR(
+    +profile.weight,
+    +profile.height,
+    +profile.age,
+    profile.gender,
+  );
   const tdee = calcTDEE(bmr);
+
   const goalLabels = {
     loss: "Weight Loss",
     gain: "Weight Gain",
     maintain: "Maintain",
   };
   const goalIcons = { loss: "↓", gain: "↑", maintain: "◎" };
+
   return (
     <>
+      {/* CARD 1: MAIN PROFILE */}
       <div className="profile-card">
         <div className="profile-header-row">
           <div className="profile-avatar">◉</div>
@@ -820,11 +938,7 @@ function ProfileTab({ profile, onSave, onLogout }) {
                 <button className="edit-btn save" onClick={handleSave}>
                   Save
                 </button>
-                <button
-                  className="edit-btn cancel"
-                  style={{ marginLeft: 8 }}
-                  onClick={handleCancel}
-                >
+                <button className="edit-btn cancel" onClick={handleCancel}>
                   Cancel
                 </button>
               </>
@@ -832,9 +946,10 @@ function ProfileTab({ profile, onSave, onLogout }) {
           </div>
         </div>
         <div className="profile-name">{profile.name}</div>
-        <div className={`goal-badge ${form.goal}`}>
-          {goalIcons[form.goal]} {goalLabels[form.goal]}
+        <div className={`goal-badge ${profile.goal}`}>
+          {goalIcons[profile.goal]} {goalLabels[profile.goal]}
         </div>
+
         {!editing && (profile.email || profile.phone) && (
           <div
             style={{
@@ -845,35 +960,26 @@ function ProfileTab({ profile, onSave, onLogout }) {
             }}
           >
             {profile.email && (
-              <div
-                style={{
-                  fontSize: 12,
-                  color: "var(--text2)",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 5,
-                }}
-              >
+              <div style={{ fontSize: 12, color: "var(--text2)" }}>
                 📬 {profile.email}
               </div>
             )}
             {profile.phone && (
-              <div
-                style={{
-                  fontSize: 12,
-                  color: "var(--text2)",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 5,
-                }}
-              >
+              <div style={{ fontSize: 12, color: "var(--text2)" }}>
                 📱 {profile.phone}
               </div>
             )}
           </div>
         )}
+
         {editing && (
-          <>
+          <div
+            style={{
+              marginTop: 16,
+              paddingTop: 16,
+              borderTop: "1px solid var(--border)",
+            }}
+          >
             <div className="edit-row">
               <div className="edit-field">
                 <label>Age</label>
@@ -921,7 +1027,6 @@ function ProfileTab({ profile, onSave, onLogout }) {
                 <input
                   className="inp"
                   type="email"
-                  placeholder="you@email.com"
                   value={form.email}
                   onChange={(e) => setForm({ ...form, email: e.target.value })}
                 />
@@ -931,24 +1036,22 @@ function ProfileTab({ profile, onSave, onLogout }) {
                 <input
                   className="inp"
                   type="tel"
-                  placeholder="+91 98765 43210"
                   value={form.phone}
                   onChange={(e) => setForm({ ...form, phone: e.target.value })}
                 />
               </div>
             </div>
             <div style={{ marginTop: 14 }}>
-              <div
+              <label
                 style={{
                   fontSize: 10,
                   letterSpacing: "0.1em",
                   textTransform: "uppercase",
                   color: "var(--text2)",
-                  marginBottom: 7,
                 }}
               >
                 Goal
-              </div>
+              </label>
               <div className="goal-edit-grid">
                 {[
                   { v: "loss", l: "🍃 Lose" },
@@ -965,16 +1068,17 @@ function ProfileTab({ profile, onSave, onLogout }) {
                 ))}
               </div>
             </div>
-          </>
+          </div>
         )}
-        <div className="bmi-row" style={{ marginTop: editing ? 16 : 0 }}>
+
+        <div className="bmi-row" style={{ marginTop: editing ? 16 : 24 }}>
           {[
             { label: "BMI", val: bmi, unit: bmiCat(+bmi) },
             { label: "TDEE", val: tdee, unit: "kcal/day" },
             { label: "BMR", val: Math.round(bmr), unit: "kcal" },
-            { label: "Weight", val: form.weight, unit: "kg" },
-            { label: "Height", val: form.height, unit: "cm" },
-            { label: "Age", val: form.age, unit: "yrs" },
+            { label: "Weight", val: profile.weight, unit: "kg" },
+            { label: "Height", val: profile.height, unit: "cm" },
+            { label: "Age", val: profile.age, unit: "yrs" },
           ].map((c) => (
             <div key={c.label} className="bmi-chip">
               <div className="bmi-chip-label">{c.label}</div>
@@ -985,10 +1089,47 @@ function ProfileTab({ profile, onSave, onLogout }) {
             </div>
           ))}
         </div>
-        <button className="logout-btn" onClick={onLogout}>
-          Sign out
-        </button>
       </div>
+
+      {/* CARD 2: DEDICATED WEIGHT TRACKER */}
+      <div className="profile-card">
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            flexWrap: "wrap",
+            gap: 10,
+          }}
+        >
+          <div
+            className="section-title"
+            style={{ fontSize: 18, marginBottom: 0 }}
+          >
+            Weight Trend
+          </div>
+
+          {/* Quick Log Input Box */}
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <input
+              className="inp"
+              type="number"
+              placeholder="e.g. 103.5"
+              value={quickWeight}
+              onChange={(e) => setQuickWeight(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleQuickLog()}
+              style={{ width: "90px", padding: "8px 10px" }}
+            />
+            <button className="add-btn" onClick={handleQuickLog}>
+              Log Today
+            </button>
+          </div>
+        </div>
+
+        <WeightChart data={weightHistory} />
+      </div>
+
+      {/* CARD 3: HOW IT IS CALCULATED */}
       <div
         className="profile-card"
         style={{ fontSize: "13px", color: "var(--text2)", lineHeight: "1.9" }}
@@ -1021,6 +1162,14 @@ function ProfileTab({ profile, onSave, onLogout }) {
         </div>
         <div>Steps burned = steps × 0.04 kcal</div>
       </div>
+
+      <button
+        className="logout-btn"
+        onClick={onLogout}
+        style={{ marginTop: 0 }}
+      >
+        Sign out
+      </button>
     </>
   );
 }
@@ -1371,6 +1520,13 @@ export default function App() {
   const [customHabits, setCustomHabits] = useState([]);
   const [removedHabits, setRemovedHabits] = useState([]);
   const [showAddHabit, setShowAddHabit] = useState(false);
+  const [currentStreak, setCurrentStreak] = useState(0);
+  const [dailyMood, setDailyMood] = useState(""); // Stores today's emoji
+  const [weeklyMoodLog, setWeeklyMoodLog] = useState({}); // e.g., { "Monday": "🤩", "Tuesday": "🙂" }
+  // NEW STATES: To-Do List and Weight Graph
+  const [todos, setTodos] = useState([]);
+  const [todoInput, setTodoInput] = useState("");
+  const [weightHistory, setWeightHistory] = useState([]);
   const iframeRef = useRef(null);
 
   // Hook receives profile so Nodemailer can access the user's email
@@ -1398,6 +1554,49 @@ export default function App() {
   useEffect(() => {
     if (!currentUser) return;
     (async () => {
+      // --- TO-DO LIST LOGIC ---
+      const addTodo = async () => {
+        if (!todoInput.trim()) return;
+        const updated = [
+          ...todos,
+          { id: Date.now(), text: todoInput.trim(), done: false },
+        ];
+        setTodos(updated);
+        await sSet(`todos_${currentUser}`, updated);
+        setTodoInput("");
+      };
+
+      const toggleTodo = async (id) => {
+        const updated = todos.map((t) =>
+          t.id === id ? { ...t, done: !t.done } : t,
+        );
+        setTodos(updated);
+        await sSet(`todos_${currentUser}`, updated);
+      };
+
+      const delTodo = async (id) => {
+        const updated = todos.filter((t) => t.id !== id);
+        setTodos(updated);
+        await sSet(`todos_${currentUser}`, updated);
+      };
+      // Fetch To-Dos
+      const savedTodos = await sGet(`todos_${currentUser}`);
+      if (savedTodos) setTodos(savedTodos);
+
+      // Fetch Weight History
+      const savedWH = await sGet(`weightHistory_${currentUser}`);
+      if (savedWH) setWeightHistory(savedWH);
+      // Fetch today's mood
+      const savedMood = await sGet(`mood_${currentUser}_${todayKey()}`);
+      if (savedMood) setDailyMood(savedMood);
+
+      // Fetch the weekly mood log
+      const savedWeeklyMood = await sGet(`weeklyMood_${currentUser}`);
+      if (savedWeeklyMood) setWeeklyMoodLog(savedWeeklyMood);
+
+      // Fetch the user's current streak
+      const savedStreak = await sGet(`streak_${currentUser}`);
+      if (savedStreak) setCurrentStreak(savedStreak);
       const log = await sGet(`food_${currentUser}_${viewDay}`);
       setFoodLog(log || []);
       const s = await sGet(`steps_${currentUser}_${viewDay}`);
@@ -1550,6 +1749,31 @@ export default function App() {
     setFoodLog(updated);
     await sSet(`food_${currentUser}_${viewDay}`, updated);
   };
+  // --- TO-DO LIST LOGIC ---
+  const addTodo = async () => {
+    if (!todoInput.trim()) return;
+    const updated = [
+      ...todos,
+      { id: Date.now(), text: todoInput.trim(), done: false },
+    ];
+    setTodos(updated);
+    await sSet(`todos_${currentUser}`, updated);
+    setTodoInput("");
+  };
+
+  const toggleTodo = async (id) => {
+    const updated = todos.map((t) =>
+      t.id === id ? { ...t, done: !t.done } : t,
+    );
+    setTodos(updated);
+    await sSet(`todos_${currentUser}`, updated);
+  };
+
+  const delTodo = async (id) => {
+    const updated = todos.filter((t) => t.id !== id);
+    setTodos(updated);
+    await sSet(`todos_${currentUser}`, updated);
+  };
   const updateFoodSteps = async (val) => {
     setFoodSteps(val);
     await sSet(`steps_${currentUser}_${viewDay}`, val === "" ? 0 : +val);
@@ -1589,6 +1813,21 @@ export default function App() {
     await sSet(`track_${currentUser}`, updated);
   };
   const isTracked = (habitId, dk) => !!trackData[`${dk}_${habitId}`];
+  // Put this function near your other helper functions
+  const handleMoodSelect = async (emoji) => {
+    const todayStr = new Date().toLocaleDateString("en-US", {
+      weekday: "long",
+    });
+    setDailyMood(emoji);
+    await sSet(`mood_${currentUser}_${todayKey()}`, emoji); // Saves today's specific mood
+
+    setWeeklyMoodLog((prev) => {
+      const updated = { ...prev, [todayStr]: emoji };
+      sSet(`weeklyMood_${currentUser}`, updated); // Saves the weekly log for the PDF!
+      return updated;
+    });
+  };
+
   const generateReport = async () => {
     // 1. Open the window immediately to bypass mobile popup blockers
     const printWindow = window.open("", "_blank");
@@ -2012,6 +2251,13 @@ export default function App() {
     maintain: "Maintain",
   };
   const goalIcons = { loss: "↓", gain: "↑", maintain: "◎" };
+  const activeHabitsList = [
+    ...DEFAULT_HABITS.filter((h) => !removedHabits.includes(h.id)),
+    ...customHabits,
+  ];
+  const isPerfectDay =
+    activeHabitsList.length > 0 &&
+    activeHabitsList.every((h) => isTracked(h.id, todayStr));
 
   if (screen === "login" || screen === "register")
     return (
@@ -2277,6 +2523,25 @@ export default function App() {
             life<span>·</span>track
           </div>
           <div className="header-right">
+            {currentUser && screen === "app" && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  marginRight: "10px",
+                  color: isPerfectDay ? "var(--red)" : "var(--text2)",
+                  fontSize: "13px",
+                  fontWeight: "600",
+                  animation: "fadeIn 0.5s ease",
+                }}
+              >
+                <span style={{ fontSize: "16px" }}>
+                  {isPerfectDay ? "🔥" : "⏳"}
+                </span>
+                <span>{currentStreak} Day Streak</span>
+              </div>
+            )}
             <button
               className="icon-btn"
               onClick={() => setDark(!dark)}
@@ -2298,6 +2563,7 @@ export default function App() {
           {[
             ["food", "Food"],
             ["wishlist", "Wishlist"],
+            ["todo", "To-Do"], // <-- ADD THIS LINE HERE
             ["schedule", "Schedule"],
             ["tracking", "Tracking"],
             ["reminders", "Reminders"],
@@ -2313,6 +2579,104 @@ export default function App() {
           ))}
         </nav>
         <div className="content">
+          {tab === "profile" && profile && (
+            <ProfileTab
+              profile={profile}
+              weightHistory={weightHistory}
+              onLogWeight={async (newWeight) => {
+                // 1. Update the main profile weight (so BMI updates)
+                const merged = { ...profile, weight: newWeight };
+                await sSet(`profile_${currentUser}`, merged);
+                setProfile(merged);
+
+                // 2. Add specifically to the graph's history
+                const today = new Date().toLocaleDateString("en-US", {
+                  month: "short",
+                  day: "numeric",
+                });
+                const historyCpy = weightHistory.filter(
+                  (w) => w.date !== today,
+                ); // Replaces if already logged today
+                const newHistory = [
+                  ...historyCpy,
+                  { date: today, weight: newWeight },
+                ];
+                setWeightHistory(newHistory);
+                await sSet(`weightHistory_${currentUser}`, newHistory);
+              }}
+              onSave={async (updated) => {
+                const merged = { ...profile, ...updated };
+                await sSet(`profile_${currentUser}`, merged);
+                setProfile(merged);
+              }}
+              onLogout={logout}
+            />
+          )}
+          {tab === "todo" && (
+            <>
+              <div className="section-title">
+                One-Off Tasks{" "}
+                <span
+                  className="tag wish"
+                  style={{
+                    marginLeft: 10,
+                    background: "var(--amber-bg)",
+                    color: "var(--amber)",
+                  }}
+                >
+                  do it once
+                </span>
+              </div>
+
+              <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
+                <input
+                  className="inp"
+                  placeholder="e.g. Call the dentist, Pay electricity bill..."
+                  value={todoInput}
+                  onChange={(e) => setTodoInput(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && addTodo()}
+                  style={{ flex: 1 }}
+                />
+                <button className="add-btn" onClick={addTodo}>
+                  + Add
+                </button>
+              </div>
+
+              {todos.length === 0 && (
+                <div className="empty">No pending tasks! Enjoy your day.</div>
+              )}
+
+              {todos.map((item) => (
+                <div
+                  key={item.id}
+                  className="list-item"
+                  style={{ opacity: item.done ? 0.5 : 1 }}
+                >
+                  <div
+                    className={`checkbox ${item.done ? "done" : ""}`}
+                    onClick={() => toggleTodo(item.id)}
+                    style={{
+                      background: item.done ? "var(--check)" : "transparent",
+                      borderColor: item.done ? "var(--check)" : "var(--border)",
+                    }}
+                  >
+                    {item.done ? "✓" : ""}
+                  </div>
+                  <div
+                    className="item-text"
+                    style={{
+                      textDecoration: item.done ? "line-through" : "none",
+                    }}
+                  >
+                    {item.text}
+                  </div>
+                  <button className="del-btn" onClick={() => delTodo(item.id)}>
+                    ×
+                  </button>
+                </div>
+              ))}
+            </>
+          )}
           {tab === "food" && (
             <>
               <div className="date-nav">
@@ -2567,6 +2931,53 @@ export default function App() {
           {tab === "schedule" && (
             <>
               <div className="section-title">Daily Schedule</div>
+              <div
+                style={{
+                  backgroundColor: "var(--surface)",
+                  padding: "20px",
+                  borderRadius: "16px",
+                  marginBottom: "20px",
+                  border: "1px solid var(--border)",
+                  textAlign: "center",
+                  animation: "slideIn 0.2s ease",
+                }}
+              >
+                <h3
+                  style={{
+                    color: "var(--text)",
+                    fontFamily: "Cormorant Garamond, serif",
+                    marginBottom: "15px",
+                    fontSize: "19px",
+                    fontWeight: "400",
+                  }}
+                >
+                  How are you feeling today?
+                </h3>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "center",
+                    gap: "15px",
+                    fontSize: "28px",
+                    cursor: "pointer",
+                  }}
+                >
+                  {["😠", "😔", "😐", "🙂", "🤩"].map((emoji) => (
+                    <span
+                      key={emoji}
+                      onClick={() => handleMoodSelect(emoji)}
+                      style={{
+                        opacity: dailyMood === emoji ? 1 : 0.4,
+                        transform:
+                          dailyMood === emoji ? "scale(1.2)" : "scale(1)",
+                        transition: "all 0.2s",
+                      }}
+                    >
+                      {emoji}
+                    </span>
+                  ))}
+                </div>
+              </div>
               <div className="schedule-grid">
                 <div className="schedule-card">
                   <label>Wake Up</label>
@@ -2808,20 +3219,6 @@ export default function App() {
               weeklyTasks={weeklyTasks}
               setWeeklyTasks={setWeeklyTasks}
               currentUser={currentUser}
-            />
-          )}
-
-          {tab === "profile" && profile && (
-            <ProfileTab
-              profile={profile}
-              goalLabels={goalLabels}
-              goalIcons={goalIcons}
-              onSave={async (updated) => {
-                const merged = { ...profile, ...updated };
-                await sSet(`profile_${currentUser}`, merged);
-                setProfile(merged);
-              }}
-              onLogout={logout}
             />
           )}
         </div>
