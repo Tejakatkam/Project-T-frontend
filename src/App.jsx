@@ -1835,6 +1835,13 @@ export default function App() {
       "<div style='font-family:sans-serif; padding: 40px; text-align:center;'>Generating your beautiful report... please wait.</div>",
     );
 
+    // --- FETCH NEW FEATURE DATA ---
+    const savedTodos = (await sGet(`todos_${currentUser}`)) || [];
+    const completedTodos = savedTodos.filter((t) => t.done);
+    const savedWH = (await sGet(`weightHistory_${currentUser}`)) || [];
+    const savedWeeklyMood = (await sGet(`weeklyMood_${currentUser}`)) || {};
+    const savedStreak = (await sGet(`streak_${currentUser}`)) || 0;
+
     // 2. Fetch the last 7 days of data
     let totalSteps = 0;
     let totalCals = 0;
@@ -1925,12 +1932,49 @@ export default function App() {
     const overallCompletion =
       totalPossible === 0 ? 0 : Math.round((totalDone / totalPossible) * 100);
 
-    // 4. Body Metrics
+    // 4. Body Metrics & Weight Chart HTML
     const bmiVal = profile ? calcBMI(+profile.weight, +profile.height) : 0;
     const bmrVal = profile
       ? calcBMR(+profile.weight, +profile.height, +profile.age, profile.gender)
       : 0;
     const tdeeVal = profile ? calcTDEE(bmrVal) : 0;
+
+    let weightChartHtml = `<div style="text-align:center; padding: 20px; color: var(--text3); font-size: 13px;">Log your weight at least twice to see the trend line.</div>`;
+    if (savedWH.length >= 2) {
+      const weights = savedWH.map((d) => d.weight);
+      const minW = Math.min(...weights) - 2;
+      const maxW = Math.max(...weights) + 2;
+      const range = maxW - minW || 1;
+      const chartW = 400;
+      const chartH = 120;
+
+      const points = savedWH
+        .map((d, i) => {
+          const x = (i / (savedWH.length - 1)) * chartW;
+          const y = chartH - ((d.weight - minW) / range) * chartH;
+          return `${x},${y}`;
+        })
+        .join(" ");
+
+      const circlesHtml = savedWH
+        .map((d, i) => {
+          const x = (i / (savedWH.length - 1)) * chartW;
+          const y = chartH - ((d.weight - minW) / range) * chartH;
+          return `
+          <circle cx="${x}" cy="${y}" r="4" fill="var(--surface)" stroke="var(--gold)" stroke-width="2" />
+          <text x="${x}" y="${y - 12}" font-size="12" fill="var(--text)" text-anchor="middle" font-family="Jost, sans-serif" font-weight="600">${d.weight}</text>
+          <text x="${x}" y="${chartH + 20}" font-size="10" fill="var(--text3)" text-anchor="middle" font-family="Jost, sans-serif">${d.date}</text>
+         `;
+        })
+        .join("");
+
+      weightChartHtml = `
+        <svg viewBox="-30 -30 460 180" style="width: 100%; max-width: 100%; height: auto; overflow: visible; display: block; margin: 0 auto;">
+          <polyline fill="none" stroke="var(--gold)" stroke-width="2" points="${points}" stroke-linecap="round" stroke-linejoin="round" />
+          ${circlesHtml}
+        </svg>
+      `;
+    }
 
     // 5. Generate Bar Charts
     const daysInitial = ["M", "T", "W", "T", "F", "S", "S"];
@@ -1948,7 +1992,32 @@ export default function App() {
       netChartHtml += `<div class="bar-col"><div class="bar-fill ${colorClass}" style="height:${hPct}%; ${fillStyle}"></div><div class="bar-label">${daysInitial[i]}</div></div>`;
     });
 
-    // 6. Dynamic Insights
+    // 6. Generate Moods & To-Dos UI
+    let moodHtml = `<div style="display: flex; justify-content: space-between; margin-top: 14px; padding: 12px 16px; background: var(--bg2); border-radius: 8px;">`;
+    weekDays.forEach((d) => {
+      const dayName = d.toLocaleDateString("en-US", { weekday: "long" });
+      const shortDay = d.toLocaleDateString("en-US", { weekday: "short" });
+      const mood = savedWeeklyMood[dayName] || "➖";
+      moodHtml += `
+        <div style="text-align: center;">
+          <div style="font-size: 22px; margin-bottom: 6px;">${mood}</div>
+          <div style="font-size: 9px; color: var(--text3); font-weight: 600; text-transform: uppercase;">${shortDay}</div>
+        </div>
+      `;
+    });
+    moodHtml += `</div>`;
+
+    let todoHtml = `<ul style="list-style: none; padding: 0; margin-top: 14px;">`;
+    if (completedTodos.length === 0) {
+      todoHtml += `<li style="font-size: 13px; color: var(--text3);">No extra tasks completed this week.</li>`;
+    } else {
+      completedTodos.forEach((t) => {
+        todoHtml += `<li style="font-size: 13px; margin-bottom: 8px; color: var(--text); padding-bottom: 8px; border-bottom: 1px solid var(--border2);"><span style="color: var(--green); margin-right: 8px; font-weight: bold;">✓</span> ${t.text}</li>`;
+      });
+    }
+    todoHtml += `</ul>`;
+
+    // 7. Dynamic Insights
     let insightsHtml = "";
     if (overallCompletion >= 80) {
       insightsHtml += `<div class="insight-row"><div class="insight-dot pos"></div><div class="insight-text"><strong>Excellent habit consistency.</strong> You hit ${overallCompletion}% completion this week. Keep up the great momentum!</div></div>`;
@@ -1970,7 +2039,7 @@ export default function App() {
       insightsHtml += `<div class="insight-row"><div class="insight-dot pos"></div><div class="insight-text"><strong>Great activity levels!</strong> You crushed the 10k step goal, averaging ${avgSteps.toLocaleString()} steps/day.</div></div>`;
     }
 
-    // 7. Inject into your HTML Template
+    // 8. Inject into your HTML Template
     const reportHTML = `
 <!DOCTYPE html>
 <html lang="en">
@@ -2095,7 +2164,7 @@ export default function App() {
   <div class="download-bar">
     <div class="download-bar-brand">life<span>·</span>track</div>
     <button class="download-btn" onclick="window.print()">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width: 14px; height: 14px;">
         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
       </svg>
       Download PDF
@@ -2137,8 +2206,8 @@ export default function App() {
           <div class="summary-stat-label">Habit Completion</div>
         </div>
         <div class="summary-stat">
-          <div class="summary-stat-val gold">${bestStreak}</div>
-          <div class="summary-stat-label">Best Streak</div>
+          <div class="summary-stat-val gold">${savedStreak}</div>
+          <div class="summary-stat-label">Perfect Streak</div>
         </div>
         <div class="summary-stat">
           <div class="summary-stat-val amber">${avgCals.toLocaleString()}<span class="summary-stat-unit">kcal</span></div>
@@ -2147,6 +2216,21 @@ export default function App() {
         <div class="summary-stat">
           <div class="summary-stat-val green">${totalSteps.toLocaleString()}<span class="summary-stat-unit" style="font-size:11px">steps</span></div>
           <div class="summary-stat-label">Total Steps</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-label">Mind & Actions</div>
+      <div class="section-title">Weekly Wellness</div>
+      <div class="nutrition-grid">
+        <div class="nutrition-card">
+          <div class="nutrition-card-label">Daily Mood Log</div>
+          ${moodHtml}
+        </div>
+        <div class="nutrition-card">
+          <div class="nutrition-card-label">Completed One-Off Tasks</div>
+          ${todoHtml}
         </div>
       </div>
     </div>
@@ -2196,6 +2280,11 @@ export default function App() {
         <div class="body-metric"><div class="body-metric-label">TDEE</div><div class="body-metric-val">${tdeeVal.toLocaleString()}<span class="body-metric-unit">kcal</span></div><div class="body-metric-note">Total expenditure</div></div>
         <div class="body-metric"><div class="body-metric-label">Avg Steps/Day</div><div class="body-metric-val">${avgSteps.toLocaleString()}<span class="body-metric-unit"></span></div><div class="body-metric-note" style="color:var(--amber)">Weekly average</div></div>
       </div>
+      
+      <div style="margin-top: 24px; padding: 24px 20px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px;">
+         <div class="nutrition-card-label" style="margin-bottom: 20px;">Weight Trend History</div>
+         ${weightChartHtml}
+      </div>
     </div>
 
     <div class="section">
@@ -2219,19 +2308,18 @@ export default function App() {
 </html>
     `;
 
-    // 8. Write the HTML to the new tab
+    // 9. Write the HTML to the new tab
     printWindow.document.open();
     printWindow.document.write(reportHTML);
     printWindow.document.close();
 
-    // 8. Wait a tiny bit for styles/fonts to load, then trigger native print
+    // 10. Wait a tiny bit for styles/fonts to load, then trigger native print
     setTimeout(() => {
       if (iframeRef.current && iframeRef.current.contentWindow) {
         iframeRef.current.contentWindow.focus();
         iframeRef.current.contentWindow.print();
       }
 
-      // Clean up the iframe AFTER the print dialog closes (No more manual clear pop-up!)
       setTimeout(() => {
         document.body.removeChild(iframe);
       }, 1000);
