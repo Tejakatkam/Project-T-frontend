@@ -377,22 +377,24 @@ const DAYS = [
 ];
 const DAYS_SHORT = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-function useNotifCheck(reminders, weeklyTasks, profile) {
-  // We no longer need the timerRef because the frontend isn't checking the clock anymore!
-
+// 👇 1. Added the two new variables here
+function useNotifCheck(
+  reminders,
+  weeklyTasks,
+  profile,
+  currentStreak,
+  weeklyMoodLog,
+) {
   useEffect(() => {
-    // If no user is logged in OR they didn't provide an email, stop here.
     if (!profile || !profile.email) return;
 
     const syncScheduleToBackend = async () => {
       try {
-        // Automatically detects your exact timezone (e.g., "Asia/Calcutta")
         const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
         await fetch(
           "https://project-t-backend-production.up.railway.app/sync-schedule",
           {
-            // Use localhost while testing!
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -400,8 +402,8 @@ function useNotifCheck(reminders, weeklyTasks, profile) {
               timezone: userTimezone,
               reminders: reminders || [],
               weeklyTasks: weeklyTasks || [],
-              streak: currentStreak, // <-- NEW
-              moods: weeklyMoodLog, // <-- NEW
+              streak: currentStreak,
+              moods: weeklyMoodLog,
             }),
           },
         );
@@ -412,9 +414,10 @@ function useNotifCheck(reminders, weeklyTasks, profile) {
       }
     };
 
-    // Run the sync function instantly whenever you add, edit, or delete a reminder
     syncScheduleToBackend();
-  }, [reminders, weeklyTasks, profile]);
+
+    // 👇 2. Added them to the dependency array here so it syncs when they change!
+  }, [reminders, weeklyTasks, profile, currentStreak, weeklyMoodLog]);
 }
 
 function RemindersTab({ reminders, setReminders, currentUser }) {
