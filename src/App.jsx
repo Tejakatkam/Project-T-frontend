@@ -2683,7 +2683,7 @@ export default function App() {
   const netCalories = Math.round(totalMacros.cal) - totalCaloriesBurned;
 
   // --- 4. DYNAMIC UI STYLING ---
-  let netColorText = "#d4af37a5";
+  let netColorText = "#d4af37";
   let netColorBg = "rgba(212, 175, 55, 0.1)";
   let netStatusText = "Perfectly Balanced";
 
@@ -2875,7 +2875,12 @@ export default function App() {
             <div className="fade-in">
               {/* 1. TOP CALORIE SUMMARY */}
               <div
-                style={{ display: "flex", gap: "12px", marginBottom: "24px" }}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(2, 1fr)",
+                  gap: "12px",
+                  marginBottom: "24px",
+                }}
               >
                 <div
                   style={{
@@ -2981,7 +2986,7 @@ export default function App() {
                       color: "var(--text)",
                     }}
                   >
-                    -{extraStepBurn}{" "}
+                    {Math.abs(extraStepBurn)}{" "}
                     <span
                       style={{
                         fontSize: "12px",
@@ -3102,7 +3107,7 @@ export default function App() {
                       fontWeight: "500",
                     }}
                   >
-                    ≈ {extraStepBurn} kcal burned
+                    ≈ {Math.abs(extraStepBurn)} kcal burned
                   </div>
                 </div>
               </div>
@@ -3140,7 +3145,7 @@ export default function App() {
                     }}
                   >
                     Base Burn (TDEE): {Math.round(baseTDEE)} kcal | Activity:{" "}
-                    {extraStepBurn} kcal
+                    {Math.abs(extraStepBurn)} kcal
                   </div>
                 </div>
                 <div
