@@ -377,24 +377,22 @@ const DAYS = [
 ];
 const DAYS_SHORT = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-// 👇 1. Added the two new variables here
-function useNotifCheck(
-  reminders,
-  weeklyTasks,
-  profile,
-  currentStreak,
-  weeklyMoodLog,
-) {
+function useNotifCheck(reminders, weeklyTasks, profile) {
+  // We no longer need the timerRef because the frontend isn't checking the clock anymore!
+
   useEffect(() => {
+    // If no user is logged in OR they didn't provide an email, stop here.
     if (!profile || !profile.email) return;
 
     const syncScheduleToBackend = async () => {
       try {
+        // Automatically detects your exact timezone (e.g., "Asia/Calcutta")
         const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
         await fetch(
-          "https://project-t-backend-production.up.railway.app/sync-schedule",
+          "https://project-t-backend-production-45ed.up.railway.app/sync-schedule",
           {
+            // Use localhost while testing!
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -402,8 +400,8 @@ function useNotifCheck(
               timezone: userTimezone,
               reminders: reminders || [],
               weeklyTasks: weeklyTasks || [],
-              streak: currentStreak,
-              moods: weeklyMoodLog,
+              // streak: currentStreak, // <-- NEW
+              // moods: weeklyMoodLog, // <-- NEW
             }),
           },
         );
@@ -414,10 +412,9 @@ function useNotifCheck(
       }
     };
 
+    // Run the sync function instantly whenever you add, edit, or delete a reminder
     syncScheduleToBackend();
-
-    // 👇 2. Added them to the dependency array here so it syncs when they change!
-  }, [reminders, weeklyTasks, profile, currentStreak, weeklyMoodLog]);
+  }, [reminders, weeklyTasks, profile]);
 }
 
 function RemindersTab({ reminders, setReminders, currentUser }) {
@@ -1530,6 +1527,10 @@ export default function App() {
   const [todos, setTodos] = useState([]);
   const [todoInput, setTodoInput] = useState("");
   const [weightHistory, setWeightHistory] = useState([]);
+  const [foodInput, setFoodInput] = useState("");
+  const [gramInput, setGramInput] = useState(""); // Changed from calInput
+  const [isCalculating, setIsCalculating] = useState(false); // New loading state
+  const [steps, setSteps] = useState(0);
   const iframeRef = useRef(null);
 
   // Hook receives profile so Nodemailer can access the user's email
@@ -1730,23 +1731,80 @@ export default function App() {
     setTab("food");
   };
 
-  const addFood = async () => {
-    if (!fName || !fCal) return;
-    const updated = [
-      ...foodLog,
-      {
+  const calculateAndAddFood = async () => {
+    if (!foodInput || !gramInput) return;
+    setIsCalculating(true);
+
+    try {
+      const geminiApiKey = "AIzaSyByDxXyh6rfyI4Z5XAL9aL7MGboQY32iKw";
+      // const geminiApiKey = "YOUR_GEMINI_API_KEY";
+
+      // Using the stable v1 endpoint
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${geminiApiKey}`;
+      const prompt = `Act as a nutritionist. Analyze: "${foodInput}" at ${gramInput}g. 
+      Return ONLY JSON: {"name": "Short Name", "cal": 0, "protein": 0, "carbs": 0, "fats": 0, "fiber": 0}`;
+
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+        }),
+      });
+
+      // 🛑 DEBUGGING 403 🛑
+      if (response.status === 403) {
+        const errorData = await response.json();
+        console.error("403 Forbidden Details:", errorData);
+        alert(
+          `403 Forbidden: ${errorData.error.message}. Check your console for details!`,
+        );
+        setIsCalculating(false);
+        return;
+      }
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        alert(`Error ${response.status}: ${errorData.error.message}`);
+        setIsCalculating(false);
+        return;
+      }
+
+      const data = await response.json();
+      const aiText = data.candidates[0].content.parts[0].text;
+      const cleanJson = aiText
+        .replace(/```json/g, "")
+        .replace(/```/g, "")
+        .trim();
+      const nutrients = JSON.parse(cleanJson);
+
+      const newFood = {
         id: Date.now(),
-        name: fName.trim(),
-        grams: +fGrams || null,
-        cal: +fCal,
-      },
-    ];
-    setFoodLog(updated);
-    await sSet(`food_${currentUser}_${viewDay}`, updated);
-    setFName("");
-    setFGrams("");
-    setFCal("");
+        text: nutrients.name, // Uses the AI-generated clean name
+        amount: gramInput,
+        cal: Math.round(nutrients.cal),
+        protein: Math.round(nutrients.protein),
+        carbs: Math.round(nutrients.carbs),
+        fats: Math.round(nutrients.fats),
+        fiber: Math.round(nutrients.fiber),
+      };
+
+      const dateKey = todayStr || new Date().toISOString().split("T")[0];
+      const currentLog = (await sGet(`food_${currentUser}_${dateKey}`)) || [];
+      const newLog = [...currentLog, newFood];
+
+      setFoodLog(newLog);
+      await sSet(`food_${currentUser}_${dateKey}`, newLog);
+
+      setFoodInput("");
+      setGramInput("");
+    } catch (error) {
+      console.error("Calculation Error:", error);
+      alert("Something went wrong. Check the console!");
+    }
+    setIsCalculating(false);
   };
+
   const delFood = async (id) => {
     const updated = foodLog.filter((f) => f.id !== id);
     setFoodLog(updated);
@@ -2165,7 +2223,7 @@ export default function App() {
 </head>
 <body>
   <div class="download-bar">
-    <div class="download-bar-brand">life<span>·</span>track</div>
+    <div class="download-bar-brand">Life<span>·</span>Track</div>
     <button class="download-btn" onclick="window.print()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width: 14px; height: 14px;">
         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
@@ -2178,7 +2236,7 @@ export default function App() {
   <div class="report">
     <div class="cover">
       <div class="cover-top">
-        <div class="cover-logo">life<span>·</span>track</div>
+        <div class="cover-logo">Life<span>·</span>Track</div>
         <div class="cover-badge">Weekly Report</div>
       </div>
       <div class="cover-title">Wellness<br/><em>Report</em></div>
@@ -2299,7 +2357,7 @@ export default function App() {
     </div>
 
     <div class="report-footer">
-      <div class="report-footer-logo">life<span>·</span>track</div>
+      <div class="report-footer-logo">Life<span>·</span>Track</div>
       <div class="report-footer-note">
         Generated ${new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}<br/>
         Personal data — for private use only
@@ -2382,7 +2440,7 @@ export default function App() {
                       alt="LifeTrack Logo"
                       style={{ height: "36px", width: "auto" }}
                     />
-                    life<span>·</span>track
+                    Life<span>·</span>Track
                   </div>
                   <div className="onboard-sub">
                     your personal wellness companion
@@ -2593,7 +2651,51 @@ export default function App() {
         </div>
       </>
     );
+  // --- CALCULATIONS FOR FOOD TAB ---
 
+  // --- 2. CALCULATE MACRO TOTALS ---
+  // --- 1. EXTRACT PROFILE DATA ---
+  const currentWeight = Number(profile?.weight || 70);
+  const height = Number(profile?.height || 170);
+  const age = Number(profile?.age || 25);
+  const gender = profile?.gender || "male";
+
+  // --- 2. CALCULATE MACRO TOTALS (KEEP ONLY THIS ONE) ---
+  const totalMacros = foodLog.reduce(
+    (acc, curr) => {
+      acc.cal += curr.cal || 0;
+      acc.protein += curr.protein || 0;
+      acc.carbs += curr.carbs || 0;
+      acc.fats += curr.fats || 0;
+      acc.fiber += curr.fiber || 0;
+      return acc;
+    },
+    { cal: 0, protein: 0, carbs: 0, fats: 0, fiber: 0 },
+  );
+
+  // --- 3. CALCULATE TDEE & BURN ---
+  let bmr = 10 * currentWeight + 6.25 * height - 5 * age;
+  bmr = gender === "male" ? bmr + 5 : bmr - 161;
+  const baseTDEE = bmr * 1.2;
+
+  const extraStepBurn = Math.round(steps * currentWeight * 0.00057);
+  const totalCaloriesBurned = Math.round(baseTDEE + extraStepBurn);
+  const netCalories = Math.round(totalMacros.cal) - totalCaloriesBurned;
+
+  // --- 4. DYNAMIC UI STYLING ---
+  let netColorText = "#d4af37a5";
+  let netColorBg = "rgba(212, 175, 55, 0.1)";
+  let netStatusText = "Perfectly Balanced";
+
+  if (netCalories < -50) {
+    netColorText = "#46c25fa8";
+    netColorBg = "rgba(78, 205, 196, 0.15)";
+    netStatusText = "Calorie Deficit";
+  } else if (netCalories > 50) {
+    netColorText = "#c33737c1";
+    netColorBg = "rgba(255, 107, 107, 0.15)";
+    netStatusText = "Calorie Surplus";
+  }
   return (
     <>
       <style>
@@ -2611,7 +2713,7 @@ export default function App() {
               alt="LifeTrack Logo"
               style={{ height: "28px", width: "auto" }}
             />
-            life<span>·</span>track
+            Life<span>·</span>Track
           </div>
           <div className="header-right">
             {currentUser && screen === "app" && (
@@ -2768,157 +2870,639 @@ export default function App() {
               ))}
             </>
           )}
+
           {tab === "food" && (
-            <>
-              <div className="date-nav">
-                <button
-                  className="date-nav-btn"
-                  onClick={() => setDayOffset((d) => d - 1)}
+            <div className="fade-in">
+              {/* 1. TOP CALORIE SUMMARY */}
+              <div
+                style={{ display: "flex", gap: "12px", marginBottom: "24px" }}
+              >
+                <div
+                  style={{
+                    flex: 1,
+                    background: "var(--surface)",
+                    padding: "16px",
+                    borderRadius: "12px",
+                    border: "1px solid var(--border)",
+                  }}
                 >
-                  ‹
-                </button>
-                <div className="date-str">{fmtDate(viewDay)}</div>
-                {dayOffset < 0 && (
-                  <button
-                    className="date-nav-btn"
-                    onClick={() => setDayOffset((d) => d + 1)}
+                  <div
+                    style={{
+                      fontSize: "10px",
+                      color: "var(--text2)",
+                      textTransform: "uppercase",
+                      marginBottom: "8px",
+                    }}
                   >
-                    ›
-                  </button>
-                )}
-              </div>
-              <div className="summary-card">
-                <div className="cal-row">
-                  <div className="cal-chip">
-                    <div className="cal-chip-label">Consumed</div>
-                    <div className="cal-chip-val">
-                      {totalEaten}
-                      <span>kcal</span>
-                    </div>
+                    Consumed
                   </div>
-                  <div className="cal-chip">
-                    <div className="cal-chip-label">Burned</div>
-                    <div className="cal-chip-val green">
-                      −{burned}
-                      <span>kcal</span>
-                    </div>
-                  </div>
-                  <div className="cal-chip">
-                    <div className="cal-chip-label">Net</div>
-                    <div className={`cal-chip-val ${netClass}`}>
-                      {isDeficit ? "−" : "+"}
-                      {Math.abs(netCal)}
-                      <span>kcal</span>
-                    </div>
+                  <div
+                    style={{
+                      fontSize: "20px",
+                      fontWeight: "bold",
+                      color: "var(--text)",
+                    }}
+                  >
+                    {Math.round(totalMacros.cal)}{" "}
+                    <span style={{ fontSize: "12px", color: "var(--text2)" }}>
+                      kcal
+                    </span>
                   </div>
                 </div>
-                <div className={`net-banner ${netClass}`}>
-                  <div>
-                    <div className={`net-label ${netClass}`}>
-                      {isZero
-                        ? "Perfectly balanced"
-                        : isDeficit
-                          ? "Calorie Deficit ↓"
-                          : "Calorie Surplus ↑"}
-                    </div>
-                    <div className="net-desc">
-                      {isZero
-                        ? "Calories in = calories out"
-                        : isDeficit
-                          ? `Burned ${Math.abs(netCal)} kcal more than consumed`
-                          : `Consumed ${netCal} kcal more than burned`}
-                    </div>
+
+                {/* UPDATED: Total Burned (TDEE + Activity) */}
+                <div
+                  style={{
+                    flex: 1,
+                    background: "var(--surface)",
+                    padding: "16px",
+                    borderRadius: "12px",
+                    border: "1px solid var(--border)",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: "10px",
+                      color: "var(--text2)",
+                      textTransform: "uppercase",
+                      marginBottom: "8px",
+                    }}
+                  >
+                    Total Burned
                   </div>
-                  <div className={`net-num ${netClass}`}>
-                    {isDeficit ? "−" : "+"}
-                    {Math.abs(netCal)}
+                  <div
+                    style={{
+                      fontSize: "20px",
+                      fontWeight: "bold",
+                      color: "var(--text)",
+                    }}
+                  >
+                    {totalCaloriesBurned}{" "}
+                    <span style={{ fontSize: "12px", color: "var(--text2)" }}>
+                      kcal
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "9px",
+                      color: "var(--text3)",
+                      marginTop: "4px",
+                    }}
+                  >
+                    TDEE + Activity
+                  </div>
+                </div>
+
+                {/* UPDATED: Activity Burn (Steps only) */}
+                <div
+                  style={{
+                    flex: 1,
+                    background: "var(--surface)",
+                    padding: "16px",
+                    borderRadius: "12px",
+                    border: "1px solid var(--border)",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: "10px",
+                      color: "var(--text2)",
+                      textTransform: "uppercase",
+                      letterSpacing: "1px",
+                      marginBottom: "8px",
+                    }}
+                  >
+                    Activity
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "20px",
+                      fontWeight: "bold",
+                      color: "var(--text)",
+                    }}
+                  >
+                    -{extraStepBurn}{" "}
+                    <span
+                      style={{
+                        fontSize: "12px",
+                        fontWeight: "normal",
+                        color: "var(--text2)",
+                      }}
+                    >
+                      kcal
+                    </span>
+                  </div>
+                </div>
+
+                {/* DYNAMIC NET BOX */}
+                <div
+                  style={{
+                    flex: 1,
+                    background: netColorBg,
+                    padding: "16px",
+                    borderRadius: "12px",
+                    border: `1px solid ${netColorText}`,
+                    transition: "all 0.3s ease",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: "10px",
+                      color: netColorText,
+                      textTransform: "uppercase",
+                      letterSpacing: "1px",
+                      marginBottom: "8px",
+                    }}
+                  >
+                    Net
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "20px",
+                      fontWeight: "bold",
+                      color: netColorText,
+                    }}
+                  >
+                    {netCalories > 0 ? "+" : ""}
+                    {netCalories}{" "}
+                    <span
+                      style={{
+                        fontSize: "12px",
+                        fontWeight: "normal",
+                        opacity: 0.8,
+                      }}
+                    >
+                      kcal
+                    </span>
                   </div>
                 </div>
               </div>
-              <div className="steps-card">
-                <div className="steps-icon">◉</div>
-                <div className="steps-content">
-                  <div className="steps-label">
-                    Steps {isToday ? "today" : fmtDate(viewDay)}
+
+              {/* 2. STEPS INPUT - (Unchanged) */}
+              <div
+                style={{
+                  background: "var(--surface)",
+                  padding: "16px",
+                  borderRadius: "12px",
+                  border: "1px solid var(--border)",
+                  marginBottom: "24px",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: "10px",
+                    color: "var(--text2)",
+                    textTransform: "uppercase",
+                    letterSpacing: "1px",
+                    marginBottom: "12px",
+                  }}
+                >
+                  Steps Today{" "}
+                  <span
+                    style={{
+                      textTransform: "none",
+                      color: "var(--text3)",
+                      marginLeft: "8px",
+                    }}
+                  >
+                    (Using profile weight: {currentWeight}kg)
+                  </span>
+                </div>
+
+                <div
+                  style={{ display: "flex", alignItems: "center", gap: "16px" }}
+                >
+                  <div
+                    style={{
+                      width: "16px",
+                      height: "16px",
+                      borderRadius: "50%",
+                      border: "2px solid #d4af37",
+                      background: "rgba(212, 175, 55, 0.2)",
+                    }}
+                  ></div>
+                  <input
+                    type="number"
+                    placeholder="e.g. 5000"
+                    value={steps || ""}
+                    onChange={(e) => setSteps(Number(e.target.value))}
+                    style={{
+                      width: "90px",
+                      background: "var(--bg)",
+                      border: "1px solid var(--border)",
+                      color: "var(--text)",
+                      padding: "8px",
+                      borderRadius: "6px",
+                    }}
+                  />
+                  <div
+                    style={{
+                      color: "#4ecdc4",
+                      fontSize: "13px",
+                      fontWeight: "500",
+                    }}
+                  >
+                    ≈ {extraStepBurn} kcal burned
                   </div>
-                  <div className="steps-row">
+                </div>
+              </div>
+
+              {/* 3. UPDATED DYNAMIC STATUS BAR (Added TDEE Breakdown) */}
+              <div
+                style={{
+                  background: netColorBg,
+                  padding: "16px",
+                  borderRadius: "12px",
+                  border: `1px solid ${netColorText}`,
+                  marginBottom: "32px",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  transition: "all 0.3s ease",
+                }}
+              >
+                <div>
+                  <div
+                    style={{
+                      color: netColorText,
+                      fontWeight: "bold",
+                      marginBottom: "4px",
+                      fontSize: "16px",
+                    }}
+                  >
+                    {netStatusText}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "11px",
+                      color: netColorText,
+                      opacity: 0.8,
+                    }}
+                  >
+                    Base Burn (TDEE): {Math.round(baseTDEE)} kcal | Activity:{" "}
+                    {extraStepBurn} kcal
+                  </div>
+                </div>
+                <div
+                  style={{
+                    fontSize: "24px",
+                    color: netColorText,
+                    fontWeight: "bold",
+                  }}
+                >
+                  {netCalories > 0 ? "+" : ""}
+                  {netCalories}
+                </div>
+              </div>
+
+              {/* 4. LOG FOOD INPUT BOX - (Unchanged) */}
+              <div style={{ fontSize: "18px", marginBottom: "16px" }}>
+                Log Food
+              </div>
+              <div
+                style={{
+                  background: "var(--surface)",
+                  padding: "16px",
+                  borderRadius: "12px",
+                  border: "1px solid var(--border)",
+                  marginBottom: "32px",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    gap: "12px",
+                    alignItems: "flex-end",
+                  }}
+                >
+                  <div style={{ flex: 2 }}>
+                    <div
+                      style={{
+                        fontSize: "10px",
+                        color: "var(--text2)",
+                        textTransform: "uppercase",
+                        letterSpacing: "1px",
+                        marginBottom: "8px",
+                      }}
+                    >
+                      Food Name
+                    </div>
                     <input
-                      className="steps-inp"
-                      type="number"
-                      placeholder="0"
-                      value={foodSteps}
-                      onChange={(e) => updateFoodSteps(e.target.value)}
-                      readOnly={!isToday}
+                      placeholder="e.g. Chicken breast, Rice..."
+                      value={foodInput}
+                      onChange={(e) => setFoodInput(e.target.value)}
+                      style={{
+                        width: "100%",
+                        background: "var(--bg)",
+                        border: "1px solid var(--border)",
+                        color: "var(--text)",
+                        padding: "12px",
+                        borderRadius: "8px",
+                      }}
                     />
-                    <span className="steps-burned">≈ {burned} kcal burned</span>
                   </div>
+                  <div style={{ flex: 1 }}>
+                    <div
+                      style={{
+                        fontSize: "10px",
+                        color: "var(--text2)",
+                        textTransform: "uppercase",
+                        letterSpacing: "1px",
+                        marginBottom: "8px",
+                      }}
+                    >
+                      Grams
+                    </div>
+                    <input
+                      type="number"
+                      placeholder="100"
+                      value={gramInput}
+                      onChange={(e) => setGramInput(e.target.value)}
+                      onKeyDown={(e) =>
+                        e.key === "Enter" && calculateAndAddFood()
+                      }
+                      style={{
+                        width: "100%",
+                        background: "var(--bg)",
+                        border: "1px solid var(--border)",
+                        color: "var(--text)",
+                        padding: "12px",
+                        borderRadius: "8px",
+                      }}
+                    />
+                  </div>
+
+                  <button
+                    onClick={calculateAndAddFood}
+                    disabled={isCalculating}
+                    style={{
+                      height: "42px",
+                      padding: "0 20px",
+                      background: "rgba(212, 175, 55, 0.15)",
+                      color: "#d4af37",
+                      fontWeight: "bold",
+                      border: "1px solid rgba(212, 175, 55, 0.3)",
+                      borderRadius: "8px",
+                      cursor: "pointer",
+                      transition: "0.2s",
+                    }}
+                  >
+                    {isCalculating ? "⏳..." : "Calculate & Add"}
+                  </button>
                 </div>
               </div>
-              {isToday && (
-                <>
-                  <div className="section-title">Log Food</div>
-                  <div className="add-form">
-                    <div className="form-row">
-                      <div className="form-field f-name">
-                        <label>Food name</label>
-                        <input
-                          className="inp"
-                          placeholder="e.g. Idli, Rice, Apple..."
-                          value={fName}
-                          onChange={(e) => setFName(e.target.value)}
-                          onKeyDown={(e) => e.key === "Enter" && addFood()}
-                        />
-                      </div>
-                      <div className="form-field f-num">
-                        <label>Grams</label>
-                        <input
-                          className="inp"
-                          type="number"
-                          placeholder="100g"
-                          value={fGrams}
-                          onChange={(e) => setFGrams(e.target.value)}
-                        />
-                      </div>
-                      <div className="form-field f-num">
-                        <label>Calories</label>
-                        <input
-                          className="inp"
-                          type="number"
-                          placeholder="kcal"
-                          value={fCal}
-                          onChange={(e) => setFCal(e.target.value)}
-                          onKeyDown={(e) => e.key === "Enter" && addFood()}
-                        />
-                      </div>
-                      <button className="add-btn" onClick={addFood}>
-                        + Add
-                      </button>
+
+              {/* 5. FOOD LOG LIST - (Unchanged) */}
+              <div
+                style={{
+                  fontSize: "18px",
+                  marginBottom: "16px",
+                  display: "flex",
+                  alignItems: "center",
+                }}
+              >
+                Food Log{" "}
+                <span
+                  style={{
+                    fontSize: "10px",
+                    color: "var(--text2)",
+                    textTransform: "uppercase",
+                    marginLeft: "12px",
+                  }}
+                >
+                  Today
+                </span>
+              </div>
+
+              {foodLog.length === 0 && (
+                <div
+                  style={{
+                    textAlign: "center",
+                    color: "var(--text2)",
+                    padding: "32px 0",
+                  }}
+                >
+                  No food logged yet today
+                </div>
+              )}
+
+              {foodLog.map((f) => (
+                <div
+                  key={f.id}
+                  style={{
+                    background: "var(--surface)",
+                    border: "1px solid var(--border)",
+                    padding: "16px",
+                    borderRadius: "12px",
+                    marginBottom: "12px",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                  }}
+                >
+                  <div>
+                    <div
+                      style={{
+                        fontSize: "16px",
+                        color: "var(--text)",
+                        marginBottom: "6px",
+                      }}
+                    >
+                      {f.amount}g {f.text}
+                    </div>
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: "12px",
+                        fontSize: "12px",
+                        color: "var(--text2)",
+                      }}
+                    >
+                      <span>
+                        P:{" "}
+                        <span style={{ color: "var(--text)" }}>
+                          {f.protein}g
+                        </span>
+                      </span>
+                      <span>
+                        C:{" "}
+                        <span style={{ color: "var(--text)" }}>{f.carbs}g</span>
+                      </span>
+                      <span>
+                        F:{" "}
+                        <span style={{ color: "var(--text)" }}>{f.fats}g</span>
+                      </span>
                     </div>
                   </div>
-                </>
-              )}
-              <div className="section-title">
-                Food Log <small>{fmtDate(viewDay)}</small>
-              </div>
-              {foodLog.length === 0 && (
-                <div className="empty">
-                  No food logged {isToday ? "yet today" : "on this day"}
-                </div>
-              )}
-              {foodLog.map((f) => (
-                <div key={f.id} className="food-item">
-                  <div className="food-dot" />
-                  <div className="food-name">{f.name}</div>
-                  {f.grams && <div className="food-meta">{f.grams}g</div>}
-                  <div className="food-cal">{f.cal} kcal</div>
-                  {isToday && (
-                    <button className="del-btn" onClick={() => delFood(f.id)}>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "16px",
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: "16px",
+                        fontWeight: "bold",
+                        color: "#d4af37",
+                      }}
+                    >
+                      {f.cal} kcal
+                    </div>
+                    <button
+                      onClick={() => delFood(f.id)}
+                      style={{
+                        background: "transparent",
+                        border: "none",
+                        color: "var(--text2)",
+                        fontSize: "20px",
+                        cursor: "pointer",
+                      }}
+                    >
                       ×
                     </button>
-                  )}
+                  </div>
                 </div>
               ))}
-            </>
+
+              {/* 6. TOTAL DAILY MACROS - (Unchanged) */}
+              {foodLog.length > 0 && (
+                <div
+                  style={{
+                    marginTop: "32px",
+                    padding: "20px",
+                    background: "var(--surface)",
+                    border: "1px solid #d4af37",
+                    borderRadius: "12px",
+                    boxShadow: "0 4px 20px rgba(212, 175, 55, 0.05)",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: "14px",
+                      textTransform: "uppercase",
+                      letterSpacing: "1px",
+                      color: "var(--text2)",
+                      marginBottom: "16px",
+                      textAlign: "center",
+                    }}
+                  >
+                    Total Daily Macros
+                  </div>
+
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(5, 1fr)",
+                      gap: "8px",
+                      textAlign: "center",
+                    }}
+                  >
+                    <div>
+                      <div
+                        style={{
+                          fontSize: "18px",
+                          fontWeight: "bold",
+                          color: "#d4af37",
+                        }}
+                      >
+                        {Math.round(totalMacros.cal)}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: "10px",
+                          color: "var(--text2)",
+                          textTransform: "uppercase",
+                        }}
+                      >
+                        Kcal
+                      </div>
+                    </div>
+                    <div>
+                      <div
+                        style={{
+                          fontSize: "18px",
+                          fontWeight: "bold",
+                          color: "var(--text)",
+                        }}
+                      >
+                        {Math.round(totalMacros.protein)}g
+                      </div>
+                      <div
+                        style={{
+                          fontSize: "10px",
+                          color: "var(--text2)",
+                          textTransform: "uppercase",
+                        }}
+                      >
+                        Protein
+                      </div>
+                    </div>
+                    <div>
+                      <div
+                        style={{
+                          fontSize: "18px",
+                          fontWeight: "bold",
+                          color: "var(--text)",
+                        }}
+                      >
+                        {Math.round(totalMacros.carbs)}g
+                      </div>
+                      <div
+                        style={{
+                          fontSize: "10px",
+                          color: "var(--text2)",
+                          textTransform: "uppercase",
+                        }}
+                      >
+                        Carbs
+                      </div>
+                    </div>
+                    <div>
+                      <div
+                        style={{
+                          fontSize: "18px",
+                          fontWeight: "bold",
+                          color: "var(--text)",
+                        }}
+                      >
+                        {Math.round(totalMacros.fats)}g
+                      </div>
+                      <div
+                        style={{
+                          fontSize: "10px",
+                          color: "var(--text2)",
+                          textTransform: "uppercase",
+                        }}
+                      >
+                        Fats
+                      </div>
+                    </div>
+                    <div>
+                      <div
+                        style={{
+                          fontSize: "18px",
+                          fontWeight: "bold",
+                          color: "var(--text)",
+                        }}
+                      >
+                        {Math.round(totalMacros.fiber)}g
+                      </div>
+                      <div
+                        style={{
+                          fontSize: "10px",
+                          color: "var(--text2)",
+                          textTransform: "uppercase",
+                        }}
+                      >
+                        Fiber
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
           )}
 
           {tab === "wishlist" && (
