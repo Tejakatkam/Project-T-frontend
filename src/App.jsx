@@ -390,7 +390,7 @@ function useNotifCheck(reminders, weeklyTasks, profile) {
         const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
         await fetch(
-          "https://project-t-backend-production-45ed.up.railway.app/sync-schedule",
+          "https://project-t-backend-production-669c.up.railway.app/sync-schedule",
           {
             // Use localhost while testing!
             method: "POST",
@@ -1531,6 +1531,9 @@ export default function App() {
   const [gramInput, setGramInput] = useState(""); // Changed from calInput
   const [isCalculating, setIsCalculating] = useState(false); // New loading state
   const [steps, setSteps] = useState(0);
+  const [isVerifyingEmail, setIsVerifyingEmail] = useState(false);
+  const [otpInput, setOtpInput] = useState("");
+  const [tempEmail, setTempEmail] = useState("");
   const iframeRef = useRef(null);
 
   // Hook receives profile so Nodemailer can access the user's email
@@ -1692,35 +1695,69 @@ export default function App() {
     await sSet("current_user", u);
     setScreen("app");
   };
-  const handleRegister = async () => {
+  // Part A: Send details and request the OTP
+  const handleRegisterRequest = async () => {
     setError("");
     const { name, pass, age, weight, height, goal, gender, email, phone } = reg;
-    if (!name || !pass || !age || !weight || !height) {
-      setError("Please fill all fields.");
+
+    if (!name || !pass || !age || !weight || !height || !email) {
+      setError("Please fill all fields, including email.");
       return;
     }
-    const u = name.trim().toLowerCase();
-    if (await sGet(`profile_${u}`)) {
-      setError("Username taken.");
-      return;
+
+    try {
+      const res = await fetch(
+        "https://project-t-backend-production-669c.up.railway.app/request-signup",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(reg), // Sends all user info to temp storage
+        },
+      );
+
+      const data = await res.json();
+      if (data.success) {
+        setTempEmail(email);
+        setIsVerifyingEmail(true); // Switches the UI to the OTP box
+      } else {
+        setError(data.error); // Shows "Username taken" or "Email exists"
+      }
+    } catch (err) {
+      setError("Failed to connect to server.");
     }
-    const p = {
-      name: name.trim(),
-      pass,
-      age: +age,
-      weight: +weight,
-      height: +height,
-      goal,
-      gender,
-      email: email || "",
-      phone: phone || "",
-    };
-    await sSet(`profile_${u}`, p);
-    await sSet("current_user", u);
-    setCurrentUser(u);
-    setProfile(p);
-    setScreen("app");
   };
+
+  // Part B: Verify the code and create the account
+  const handleVerifyOTP = async () => {
+    setError("");
+    try {
+      const res = await fetch(
+        "https://project-t-backend-production-669c.up.railway.app/verify-signup",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: tempEmail, otp: otpInput }),
+        },
+      );
+
+      const data = await res.json();
+      if (data.success) {
+        // Success! Now log them in automatically
+        const u = reg.name.trim().toLowerCase();
+        const p = { ...reg, name: reg.name.trim() };
+        delete p.pass; // Don't store password in local profile for safety
+
+        setCurrentUser(u);
+        setProfile(p);
+        setScreen("app");
+      } else {
+        setError("Invalid OTP. Please check your email.");
+      }
+    } catch (err) {
+      setError("Verification failed.");
+    }
+  };
+
   const logout = async () => {
     await sSet("current_user", null);
     setCurrentUser(null);
@@ -2490,149 +2527,223 @@ export default function App() {
                   </div>
                 </>
               ) : (
+                /* REPLACE EVERYTHING FROM HERE TO THE END OF THE ONBOARD-CARD DIV */
                 <>
-                  <div className="inp-row">
-                    <div className="field" style={{ flex: 1 }}>
-                      <label>Username</label>
-                      <input
-                        className="inp"
-                        placeholder="e.g. priya"
-                        value={reg.name}
-                        onChange={(e) =>
-                          setReg({ ...reg, name: e.target.value })
-                        }
-                      />
-                    </div>
-                    <div className="field" style={{ flex: 1 }}>
-                      <label>Password</label>
-                      <input
-                        className="inp"
-                        type="password"
-                        placeholder="••••••"
-                        value={reg.pass}
-                        onChange={(e) =>
-                          setReg({ ...reg, pass: e.target.value })
-                        }
-                      />
-                    </div>
-                  </div>
-                  <div className="inp-row">
-                    <div className="field" style={{ flex: 1 }}>
-                      <label>Email</label>
-                      <input
-                        className="inp"
-                        type="email"
-                        placeholder="you@email.com"
-                        value={reg.email || ""}
-                        onChange={(e) =>
-                          setReg({ ...reg, email: e.target.value })
-                        }
-                      />
-                    </div>
-                    <div className="field" style={{ flex: 1 }}>
-                      <label>Phone (with country code)</label>
-                      <input
-                        className="inp"
-                        type="tel"
-                        placeholder="+91 98765 43210"
-                        value={reg.phone || ""}
-                        onChange={(e) =>
-                          setReg({ ...reg, phone: e.target.value })
-                        }
-                      />
-                    </div>
-                  </div>
-                  <div
-                    style={{
-                      fontSize: 11,
-                      color: "var(--text2)",
-                      background: "var(--bg2)",
-                      border: "1px solid var(--border)",
-                      borderRadius: 8,
-                      padding: "9px 12px",
-                      marginBottom: 14,
-                      lineHeight: 1.6,
-                    }}
-                  >
-                    📬 Your email & phone will be used to send reminder
-                    notifications for habits and weekly tasks. Both are optional
-                    but recommended.
-                  </div>
-                  <div className="inp-row">
-                    <div className="field" style={{ flex: 1 }}>
-                      <label>Age</label>
-                      <input
-                        className="inp"
-                        type="number"
-                        placeholder="25"
-                        value={reg.age}
-                        onChange={(e) =>
-                          setReg({ ...reg, age: e.target.value })
-                        }
-                      />
-                    </div>
-                    <div className="field" style={{ flex: 1 }}>
-                      <label>Weight (kg)</label>
-                      <input
-                        className="inp"
-                        type="number"
-                        placeholder="62"
-                        value={reg.weight}
-                        onChange={(e) =>
-                          setReg({ ...reg, weight: e.target.value })
-                        }
-                      />
-                    </div>
-                    <div className="field" style={{ flex: 1 }}>
-                      <label>Height (cm)</label>
-                      <input
-                        className="inp"
-                        type="number"
-                        placeholder="165"
-                        value={reg.height}
-                        onChange={(e) =>
-                          setReg({ ...reg, height: e.target.value })
-                        }
-                      />
-                    </div>
-                  </div>
-                  <div className="field">
-                    <label>Biological Sex</label>
-                    <select
-                      className="inp"
-                      value={reg.gender}
-                      onChange={(e) =>
-                        setReg({ ...reg, gender: e.target.value })
-                      }
-                    >
-                      <option value="female">Female</option>
-                      <option value="male">Male</option>
-                      <option value="other">Other</option>
-                    </select>
-                  </div>
-                  <div className="field">
-                    <label>Your Goal</label>
-                    <div className="goal-grid">
-                      {[
-                        { v: "loss", icon: "🍃", l: "Lose Weight" },
-                        { v: "maintain", icon: "⚖", l: "Maintain" },
-                        { v: "gain", icon: "💪", l: "Gain Weight" },
-                      ].map((g) => (
-                        <div
-                          key={g.v}
-                          className={`goal-opt${reg.goal === g.v ? " selected" : ""}`}
-                          onClick={() => setReg({ ...reg, goal: g.v })}
-                        >
-                          <div className="go-icon">{g.icon}</div>
-                          <div className="go-label">{g.l}</div>
+                  {!isVerifyingEmail ? (
+                    <>
+                      <div className="inp-row">
+                        <div className="field" style={{ flex: 1 }}>
+                          <label>Username</label>
+                          <input
+                            className="inp"
+                            placeholder="e.g. priya"
+                            value={reg.name}
+                            onChange={(e) =>
+                              setReg({ ...reg, name: e.target.value })
+                            }
+                          />
                         </div>
-                      ))}
+                        <div className="field" style={{ flex: 1 }}>
+                          <label>Password</label>
+                          <input
+                            className="inp"
+                            type="password"
+                            placeholder="••••••"
+                            value={reg.pass}
+                            onChange={(e) =>
+                              setReg({ ...reg, pass: e.target.value })
+                            }
+                          />
+                        </div>
+                      </div>
+                      <div className="inp-row">
+                        <div className="field" style={{ flex: 1 }}>
+                          <label>Email</label>
+                          <input
+                            className="inp"
+                            type="email"
+                            placeholder="you@email.com"
+                            value={reg.email || ""}
+                            onChange={(e) =>
+                              setReg({ ...reg, email: e.target.value })
+                            }
+                          />
+                        </div>
+                        <div className="field" style={{ flex: 1 }}>
+                          <label>Phone</label>
+                          <input
+                            className="inp"
+                            type="tel"
+                            placeholder="+91 98765 43210"
+                            value={reg.phone || ""}
+                            onChange={(e) =>
+                              setReg({ ...reg, phone: e.target.value })
+                            }
+                          />
+                        </div>
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 11,
+                          color: "var(--text2)",
+                          background: "var(--bg2)",
+                          border: "1px solid var(--border)",
+                          borderRadius: 8,
+                          padding: "9px 12px",
+                          marginBottom: 14,
+                          lineHeight: 1.6,
+                        }}
+                      >
+                        📬 Your email & phone will be used to send reminder
+                        notifications. Validating your email prevents duplicate
+                        accounts.
+                      </div>
+                      <div className="inp-row">
+                        <div className="field" style={{ flex: 1 }}>
+                          <label>Age</label>
+                          <input
+                            className="inp"
+                            type="number"
+                            value={reg.age}
+                            onChange={(e) =>
+                              setReg({ ...reg, age: e.target.value })
+                            }
+                          />
+                        </div>
+                        <div className="field" style={{ flex: 1 }}>
+                          <label>Weight (kg)</label>
+                          <input
+                            className="inp"
+                            type="number"
+                            value={reg.weight}
+                            onChange={(e) =>
+                              setReg({ ...reg, weight: e.target.value })
+                            }
+                          />
+                        </div>
+                        <div className="field" style={{ flex: 1 }}>
+                          <label>Height (cm)</label>
+                          <input
+                            className="inp"
+                            type="number"
+                            value={reg.height}
+                            onChange={(e) =>
+                              setReg({ ...reg, height: e.target.value })
+                            }
+                          />
+                        </div>
+                      </div>
+                      <div className="field">
+                        <label>Biological Sex</label>
+                        <select
+                          className="inp"
+                          value={reg.gender}
+                          onChange={(e) =>
+                            setReg({ ...reg, gender: e.target.value })
+                          }
+                        >
+                          <option value="female">Female</option>
+                          <option value="male">Male</option>
+                          <option value="other">Other</option>
+                        </select>
+                      </div>
+                      <div className="field">
+                        <label>Your Goal</label>
+                        <div className="goal-grid">
+                          {[
+                            { v: "loss", icon: "🍃", l: "Lose Weight" },
+                            { v: "maintain", icon: "⚖", l: "Maintain" },
+                            { v: "gain", icon: "💪", l: "Gain Weight" },
+                          ].map((g) => (
+                            <div
+                              key={g.v}
+                              className={`goal-opt${reg.goal === g.v ? " selected" : ""}`}
+                              onClick={() => setReg({ ...reg, goal: g.v })}
+                            >
+                              <div className="go-icon">{g.icon}</div>
+                              <div className="go-label">{g.l}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      {error && <div className="err">{error}</div>}
+                      <button
+                        className="primary-btn"
+                        onClick={handleRegisterRequest}
+                      >
+                        Send Verification Code
+                      </button>
+                    </>
+                  ) : (
+                    <div
+                      style={{
+                        textAlign: "center",
+                        animation: "fadeUp 0.4s ease",
+                        padding: "10px 0",
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: "18px",
+                          marginBottom: "10px",
+                          color: "var(--text)",
+                        }}
+                      >
+                        Verify Your Email
+                      </div>
+                      <p
+                        style={{
+                          fontSize: "13px",
+                          color: "var(--text2)",
+                          marginBottom: "20px",
+                        }}
+                      >
+                        We sent a 6-digit code to <strong>{tempEmail}</strong>
+                      </p>
+
+                      <div className="field">
+                        <label>Enter 6-Digit Code</label>
+                        <input
+                          className="inp"
+                          style={{
+                            textAlign: "center",
+                            fontSize: "24px",
+                            letterSpacing: "8px",
+                            fontWeight: "bold",
+                          }}
+                          placeholder="000000"
+                          value={otpInput}
+                          onChange={(e) => setOtpInput(e.target.value)}
+                          maxLength={6}
+                        />
+                      </div>
+
+                      {error && (
+                        <div className="err" style={{ marginBottom: "10px" }}>
+                          {error}
+                        </div>
+                      )}
+
+                      <button className="primary-btn" onClick={handleVerifyOTP}>
+                        Verify & Create Account
+                      </button>
+
+                      <button
+                        style={{
+                          background: "none",
+                          border: "none",
+                          color: "var(--text3)",
+                          marginTop: "20px",
+                          cursor: "pointer",
+                          fontSize: "12px",
+                          textDecoration: "underline",
+                        }}
+                        onClick={() => setIsVerifyingEmail(false)}
+                      >
+                        ← Back to Edit Details
+                      </button>
                     </div>
-                  </div>
-                  {error && <div className="err">{error}</div>}
-                  <button className="primary-btn" onClick={handleRegister}>
-                    Create Account
-                  </button>
+                  )}
                   <div className="switch-link">
                     Have an account?{" "}
                     <button
