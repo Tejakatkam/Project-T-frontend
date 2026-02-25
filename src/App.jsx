@@ -1680,20 +1680,41 @@ export default function App() {
 
   const handleLogin = async () => {
     setError("");
-    const p = await sGet(`profile_${loginName.trim().toLowerCase()}`);
-    if (!p) {
-      setError("User not found.");
+    if (!loginName || !loginPass) {
+      setError("Please enter your email and password.");
       return;
     }
-    if (p.pass !== loginPass) {
-      setError("Incorrect password.");
-      return;
+
+    try {
+      const res = await fetch(
+        "https://project-t-backend-production-669c.up.railway.app/login",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          // 👇 THIS IS THE CRITICAL PART: Send the variables explicitly as 'email' and 'password'
+          body: JSON.stringify({
+            email: loginName,
+            password: loginPass,
+          }),
+        },
+      );
+
+      const data = await res.json();
+
+      if (data.success) {
+        // Login successful! Save to local session and enter app
+        const u = data.userData.email; // Use email as the unique session ID locally
+        setCurrentUser(u);
+        setProfile(data.userData);
+        await sSet("current_user", u);
+        await sSet(`profile_${u}`, data.userData);
+        setScreen("app");
+      } else {
+        setError(data.error);
+      }
+    } catch (err) {
+      setError("Failed to connect to the server. Please try again.");
     }
-    const u = loginName.trim().toLowerCase();
-    setCurrentUser(u);
-    setProfile(p);
-    await sSet("current_user", u);
-    setScreen("app");
   };
   // Part A: Send details and request the OTP
   const handleRegisterRequest = async () => {
