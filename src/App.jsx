@@ -2511,10 +2511,10 @@ export default function App() {
               {screen === "login" ? (
                 <>
                   <div className="field">
-                    <label>Username</label>
+                    <label>Email</label>
                     <input
                       className="inp"
-                      placeholder="your username"
+                      placeholder="your email"
                       value={loginName}
                       onChange={(e) => setLoginName(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && handleLogin()}
